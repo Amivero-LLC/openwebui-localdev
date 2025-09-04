@@ -17,6 +17,22 @@ services:
         source: data            # ← reference the key below
         target: /app/backend/data
 
+  docling:
+    image: ${DOCLING_IMAGE}:${DOCLING_TAG}
+    container_name: ${DOCLING_CONTAINER_NAME}
+    restart: unless-stopped
+    ports:
+      - "${DOCLING_PORT}:5001"
+    environment:
+      DOCLING_SERVE_ENABLE_UI: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - type: volume
+        source: docling-cache
+        target: /root/.cache
+
 volumes:
   data:                         # ← YAML key must be static
     name: ${VOLUME_NAME:-open-webui}   # ← actual Docker volume name can use env var
+  docling-cache:
