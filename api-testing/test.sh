@@ -1152,6 +1152,14 @@ execute_request() {
   print_step 1 4 "Building request payload" "active"
   local payload
   payload=$(build_request_payload "$user_message")
+  # Persist exact payload bytes to a temp file and use it everywhere
+  PAYLOAD_FILE=$(mktemp)
+  # Normalize to compact JSON to avoid line-wrapping ambiguity
+  if command -v jq >/dev/null 2>&1; then
+    echo "$payload" | jq -c . > "$PAYLOAD_FILE" 2>/dev/null || printf "%s" "$payload" > "$PAYLOAD_FILE"
+  else
+    printf "%s" "$payload" > "$PAYLOAD_FILE"
+  fi
   
   if [ $? -eq 0 ]; then
     print_step 1 4 "Request payload built" "complete"
@@ -1219,14 +1227,14 @@ build_request_payload() {
         --argjson temperature "$TEMPERATURE" \
         '{
           system: [{text: "You are a helpful assistant."}],
-          messages: [
-            {role: "user", content: [{text: $user}]}
-          ],
+          messages: [],
           inferenceConfig: {
             maxTokens: $max_tokens,
             temperature: $temperature
           }
-        }')
+        }
+        | .messages += [ if ($user | length) > 0 then {role: "user", content: [{text: ($user | gsub("\r"; ""))}]} else {role: "user", content: []} end ]'
+      )
     else
       # OpenAI-compatible format
       payload=$(jq -n \
@@ -1241,30 +1249,30 @@ build_request_payload() {
           temperature: $temperature,
           stream: $stream,
           messages: [
-            {role: "system", content: "You are a helpful assistant."},
-            {role: "user", content: $user}
+            {role: "system", content: "You are a helpful assistant."}
           ]
-        }')
+        }
+        | .messages += [{role: "user", content: ($user | gsub("\r"; ""))}]'
+      )
     fi
     
     # Add file attachments if present
     if [ "$INCLUDE_FILE_FLAG" -eq 1 ] && [ "${FILE_SELECTED_COUNT:-0}" -gt 0 ] && [ -n "${SELECTED_FILES_FILE:-}" ] && [ -f "$SELECTED_FILES_FILE" ]; then
       while IFS= read -r file_path; do
         [ -z "$file_path" ] && continue
-        local filename content
+        local filename
         filename=$(basename "$file_path")
-        content=$(cat "$file_path")
         
         if [ "$API_TEST_TARGET" = "aws" ]; then
           payload=$(echo "$payload" | jq \
             --arg name "$filename" \
-            --arg text "$content" \
-            '.messages += [{role: "user", content: [{text: ("Attached file (" + $name + "):\n" + $text)}]}]')
+            --rawfile text "$file_path" \
+            '.messages += [{role: "user", content: [{text: ("Attached file (" + $name + "):\n" + ($text | gsub("\r"; "")))}]}]')
         else
           payload=$(echo "$payload" | jq \
             --arg name "$filename" \
-            --arg text "$content" \
-            '.messages += [{role: "user", content: ("Attached file (" + $name + "):\n" + $text)}]')
+            --rawfile text "$file_path" \
+            '.messages += [{role: "user", content: ("Attached file (" + $name + "):\n" + ($text | gsub("\r"; "")))}]')
         fi
       done < "$SELECTED_FILES_FILE"
     fi
@@ -1289,15 +1297,21 @@ build_payload_fallback() {
   local user_message="$1"
   local escaped_message
   
+  # Basic sanitization: remove CR and control chars except TAB and LF
+  user_message=$(printf "%s" "$user_message" | tr -d '\r' | LC_ALL=C tr -d '\000-\010\013\014\016-\037')
   # Basic JSON escaping
-  escaped_message=$(echo "$user_message" | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/g' | tr -d '\n' | sed 's/\\n$//')
+  # - Escape backslashes and quotes
+  # - Convert tabs/newlines to \t and \n within the JSON string
+  escaped_message=$(printf "%s" "$user_message" \
+    | sed -e 's/\\/\\\\/g' -e 's/\"/\\\"/g' -e $'s/\t/\\t/g' \
+    | sed 's/$/\\n/g' | tr -d '\n' | sed 's/\\n$//')
   
   if [ "$API_TEST_TARGET" = "aws" ]; then
     cat <<JSON
 {
   "system": [{"text": "You are a helpful assistant."}],
   "messages": [
-    {"role": "user", "content": [{"text": "$escaped_message"}]}
+    {"role": "user", "content": [$( [ -n "$escaped_message" ] && printf '{"text": "%s"}' "$escaped_message" )]}
   ],
   "inferenceConfig": {
     "maxTokens": $MAX_TOKENS,
@@ -1314,7 +1328,7 @@ JSON
   "stream": $([ "$STREAM_FLAG" -eq 1 ] && echo "true" || echo "false"),
   "messages": [
     {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "$escaped_message"}
+    {"role": "user", "content": "${escaped_message}"}
   ]
 }
 JSON
@@ -1345,10 +1359,18 @@ show_request_preview() {
   
   # Show payload (pretty-printed if possible)
   printf "\n$(c CYAN)$(c BOLD)Payload:$(c RESET)\n"
-  if command -v jq >/dev/null 2>&1; then
-    echo "$payload" | jq --color-output . 2>/dev/null || echo "$payload"
+  if [ -n "${PAYLOAD_FILE:-}" ] && [ -f "$PAYLOAD_FILE" ]; then
+    if command -v jq >/dev/null 2>&1; then
+      jq --color-output . "$PAYLOAD_FILE" 2>/dev/null || cat "$PAYLOAD_FILE"
+    else
+      cat "$PAYLOAD_FILE"
+    fi
   else
-    echo "$payload"
+    if command -v jq >/dev/null 2>&1; then
+      echo "$payload" | jq --color-output . 2>/dev/null || echo "$payload"
+    else
+      echo "$payload"
+    fi
   fi
   
   printf "$(c BLUE)%s$(c RESET)\n" "$(printf '▁%.0s' $(seq 1 60))"
@@ -1374,7 +1396,18 @@ execute_streaming_request() {
   local http_status
   
   # Preflight attempt (try strict first, then fallback to -k if SSL blocks)
-  http_status=$(curl -sS -w "%{http_code}" -o "$preflight_response" \
+  if [ -n "${PAYLOAD_FILE:-}" ] && [ -f "$PAYLOAD_FILE" ]; then
+    http_status=$(curl -sS -w "%{http_code}" -o "$preflight_response" \
+      --connect-timeout 10 \
+      --max-time 30 \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $API_KEY" \
+      -X POST "$URL" \
+      --data-binary @"$PAYLOAD_FILE" 2>/dev/null) || {
+      http_status="000"
+    }
+  else
+    http_status=$(curl -sS -w "%{http_code}" -o "$preflight_response" \
     --connect-timeout 10 \
     --max-time 30 \
     -H "Content-Type: application/json" \
@@ -1383,16 +1416,27 @@ execute_streaming_request() {
     -d "$payload" 2>/dev/null) || {
     http_status="000"
   }
+  fi
   
   # If strict failed and we're using HTTPS, try insecure fallback
   if [[ ! "$http_status" =~ ^2 ]] && [[ "$URL" =~ ^https:// ]] && [ "$INSECURE_FLAG" -eq 0 ]; then
-    http_status=$(curl -sS -k -w "%{http_code}" -o "$preflight_response" \
+    if [ -n "${PAYLOAD_FILE:-}" ] && [ -f "$PAYLOAD_FILE" ]; then
+      http_status=$(curl -sS -k -w "%{http_code}" -o "$preflight_response" \
+        --connect-timeout 10 \
+        --max-time 30 \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $API_KEY" \
+        -X POST "$URL" \
+        --data-binary @"$PAYLOAD_FILE" 2>/dev/null || echo "000")
+    else
+      http_status=$(curl -sS -k -w "%{http_code}" -o "$preflight_response" \
       --connect-timeout 10 \
       --max-time 30 \
       -H "Content-Type: application/json" \
       -H "Authorization: Bearer $API_KEY" \
       -X POST "$URL" \
       -d "$payload" 2>/dev/null || echo "000")
+    fi
     if [[ "$http_status" =~ ^2 ]]; then
       INSECURE_RUNTIME=1
     fi
@@ -1422,13 +1466,25 @@ execute_streaming_request() {
   local token_count=0
   local line_count=0
   
-  curl -sS -N \
-    --connect-timeout 10 \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $API_KEY" \
-    -X POST "$URL" \
-    $([ "$INSECURE_FLAG" -eq 1 -o "$INSECURE_RUNTIME" -eq 1 ] && echo "-k") \
-    -d "$payload" 2>/dev/null |
+  {
+    if [ -n "${PAYLOAD_FILE:-}" ] && [ -f "$PAYLOAD_FILE" ]; then
+      curl -sS -N \
+        --connect-timeout 10 \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $API_KEY" \
+        -X POST "$URL" \
+        $([ "$INSECURE_FLAG" -eq 1 -o "$INSECURE_RUNTIME" -eq 1 ] && echo "-k") \
+        --data-binary @"$PAYLOAD_FILE" 2>/dev/null
+    else
+      curl -sS -N \
+        --connect-timeout 10 \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $API_KEY" \
+        -X POST "$URL" \
+        $([ "$INSECURE_FLAG" -eq 1 -o "$INSECURE_RUNTIME" -eq 1 ] && echo "-k") \
+        -d "$payload" 2>/dev/null
+    fi
+  } |
   while IFS= read -r line; do
     case "$line" in
       data:*)
@@ -1477,40 +1533,62 @@ execute_non_streaming_request() {
   response_file=$(mktemp)
   local http_status
   
-  # Show a progress indicator for long requests
-  {
-    sleep 1
-    if kill -0 $ 2>/dev/null; then
-      printf "$(c BRIGHT_BLUE)$(e LOADING)Waiting for response...$(c RESET)\n"
-    fi
-  } &
+  # Show a simple progress message after a short delay
+  { sleep 1; printf "$(c BRIGHT_BLUE)$(e LOADING)Waiting for response...$(c RESET)\n"; } &
   local progress_pid=$!
   
   # Execute request
   # Execute request (strict first, then insecure fallback if needed)
-  http_status=$(curl -sS -w "%{http_code}" -o "$response_file" \
-    --connect-timeout 10 \
-    --max-time 60 \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $API_KEY" \
-    -X POST "$URL" \
-    -d "$payload" 2>/dev/null) || {
+  if [ -n "${PAYLOAD_FILE:-}" ] && [ -f "$PAYLOAD_FILE" ]; then
+    http_status=$(curl -sS -w "%{http_code}" -o "$response_file" \
+      --connect-timeout 10 \
+      --max-time 60 \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $API_KEY" \
+      -X POST "$URL" \
+      --data-binary @"$PAYLOAD_FILE" 2>/dev/null) || {
+      kill $progress_pid 2>/dev/null || true
+      wait $progress_pid 2>/dev/null || true
+      print_status "error" "Request failed - check network connectivity"
+      [ -s "$response_file" ] && cat "$response_file" >&2
+      rm -f "$response_file"
+      return 1
+    }
+  else
+    http_status=$(curl -sS -w "%{http_code}" -o "$response_file" \
+      --connect-timeout 10 \
+      --max-time 60 \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $API_KEY" \
+      -X POST "$URL" \
+      -d "$payload" 2>/dev/null) || {
     kill $progress_pid 2>/dev/null || true
     wait $progress_pid 2>/dev/null || true
     print_status "error" "Request failed - check network connectivity"
     [ -s "$response_file" ] && cat "$response_file" >&2
     rm -f "$response_file"
     return 1
-  }
+    }
+  fi
   
   if [[ ! "$http_status" =~ ^2 ]] && [[ "$URL" =~ ^https:// ]] && [ "$INSECURE_FLAG" -eq 0 ]; then
-    http_status=$(curl -sS -k -w "%{http_code}" -o "$response_file" \
-      --connect-timeout 10 \
-      --max-time 60 \
-      -H "Content-Type: application/json" \
-      -H "Authorization: Bearer $API_KEY" \
-      -X POST "$URL" \
-      -d "$payload" 2>/dev/null || echo "000")
+    if [ -n "${PAYLOAD_FILE:-}" ] && [ -f "$PAYLOAD_FILE" ]; then
+      http_status=$(curl -sS -k -w "%{http_code}" -o "$response_file" \
+        --connect-timeout 10 \
+        --max-time 60 \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $API_KEY" \
+        -X POST "$URL" \
+        --data-binary @"$PAYLOAD_FILE" 2>/dev/null || echo "000")
+    else
+      http_status=$(curl -sS -k -w "%{http_code}" -o "$response_file" \
+        --connect-timeout 10 \
+        --max-time 60 \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $API_KEY" \
+        -X POST "$URL" \
+        -d "$payload" 2>/dev/null || echo "000")
+    fi
     if [[ "$http_status" =~ ^2 ]]; then
       INSECURE_RUNTIME=1
     fi
@@ -1525,27 +1603,22 @@ execute_non_streaming_request() {
   rm -f "$response_file"
   
   # Process response based on status
-  case "$http_status" in
-    2**)
-      print_status "success" "Request completed successfully (HTTP $http_status)"
-      show_response_details "$response_body"
-      ;;
-    4**)
-      print_status "error" "Client error (HTTP $http_status)"
-      show_error_details "$response_body"
-      return 1
-      ;;
-    5**)
-      print_status "error" "Server error (HTTP $http_status)"
-      show_error_details "$response_body"
-      return 1
-      ;;
-    *)
-      print_status "error" "Unexpected HTTP status: $http_status"
-      echo "$response_body" >&2
-      return 1
-      ;;
-  esac
+  if [[ "$http_status" =~ ^2 ]]; then
+    print_status "success" "Request completed successfully (HTTP $http_status)"
+    show_response_details "$response_body"
+  elif [[ "$http_status" =~ ^4 ]]; then
+    print_status "error" "Client error (HTTP $http_status)"
+    show_error_details "$response_body"
+    return 1
+  elif [[ "$http_status" =~ ^5 ]]; then
+    print_status "error" "Server error (HTTP $http_status)"
+    show_error_details "$response_body"
+    return 1
+  else
+    print_status "error" "Unexpected HTTP status: $http_status"
+    echo "$response_body" >&2
+    return 1
+  fi
 }
 
 # Show detailed response information
@@ -1588,6 +1661,10 @@ show_response_details() {
     else
       printf "$(c BRIGHT_WHITE)%s$(c RESET)\n" "$content"
     fi
+    
+    # Show full response JSON payload
+    printf "\n$(c CYAN)$(c BOLD)Response Payload:$(c RESET)\n"
+    echo "$response" | jq --color-output . 2>/dev/null || echo "$response"
   else
     # Fallback without jq
     if [ "$RAW_FLAG" -eq 1 ]; then
@@ -1817,7 +1894,7 @@ select_files_interactive() {
 # Output: Help text to stdout
 # Returns: 0
 print_help() {
-  print_header "Enhanced LLM API Testing Tool" "Modern • Intuitive • Comprehensive"
+  print_header "Enhanced LLM API Testing Tool" "Modern - Intuitive - Comprehensive"
   
   cat << 'EOF'
 ┌─ DESCRIPTION ──────────────────────────────────────────────────────────────┐
@@ -1998,130 +2075,79 @@ main() {
   
   # Parse command line arguments with enhanced validation
   while [ $# -gt 0 ]; do
-    case "$1" in
-      -h|--help)
-        print_help
-        exit 0
-        ;;
-      --version)
-        printf "Enhanced LLM API Testing Tool v%s\n" "$SCRIPT_VERSION"
-        exit 0
-        ;;
-      --stream)
-        STREAM_FLAG=1
-        print_debug 2 "Streaming mode enabled"
-        shift
-        ;;
-      --raw)
-        RAW_FLAG=1
-        print_debug 2 "Raw output mode enabled"
-        shift
-        ;;
-      # --insecure (intentionally undocumented)
-      --insecure)
-        INSECURE_FLAG=1
-        print_debug 1 "Insecure mode enabled (-k)"
-        shift
-        ;;
-      --debug)
-        if [ -n "${2:-}" ] && [[ "$2" =~ ^[0-2]$ ]]; then
-          DEBUG="$2"
-          print_debug 1 "Debug level set to $DEBUG"
-          shift 2
-        else
-          print_status "error" "Invalid debug level. Use 0, 1, or 2"
-          exit 1
-        fi
-        ;;
-      --debug=*)
-        local debug_val="${1#--debug=}"
-        if [[ "$debug_val" =~ ^[0-2]$ ]]; then
-          DEBUG="$debug_val"
-          print_debug 1 "Debug level set to $DEBUG"
-        else
-          print_status "error" "Invalid debug level. Use 0, 1, or 2"
-          exit 1
-        fi
-        shift
-        ;;
-      --file)
-        local file_choice="${2:-2}"
-        if [[ "$file_choice" =~ ^[12]$ ]]; then
-          [ "$file_choice" = "1" ] && INCLUDE_FILE_FLAG=1 || INCLUDE_FILE_FLAG=0
-          print_debug 2 "File attachment mode: $INCLUDE_FILE_FLAG"
-          shift 2
-        else
-          print_status "error" "Invalid file option. Use 1 (yes) or 2 (no)"
-          exit 1
-        fi
-        ;;
-      --file=*)
-        local file_choice="${1#--file=}"
-        if [[ "$file_choice" =~ ^[12]$ ]]; then
-          [ "$file_choice" = "1" ] && INCLUDE_FILE_FLAG=1 || INCLUDE_FILE_FLAG=0
-          print_debug 2 "File attachment mode: $INCLUDE_FILE_FLAG"
-        else
-          print_status "error" "Invalid file option. Use 1 (yes) or 2 (no)"
-          exit 1
-        fi
-        shift
-        ;;
-      --conn)
-        if [ -n "${2:-}" ]; then
-          API_TEST_TARGET="$2"
-          print_debug 2 "Connection target set to: $API_TEST_TARGET"
-          shift 2
-        else
-          print_status "error" "--conn requires a provider argument"
-          exit 1
-        fi
-        ;;
-      --conn=*)
-        API_TEST_TARGET="${1#--conn=}"
-        print_debug 2 "Connection target set to: $API_TEST_TARGET"
-        shift
-        ;;
-      --openwebui)
-        API_TEST_TARGET="openwebui"
-        print_debug 2 "OpenWebUI provider selected"
-        shift
-        ;;
-      --bag)
-        API_TEST_TARGET="bag"
-        print_debug 2 "Bedrock Access Gateway provider selected"
-        shift
-        ;;
-      --aws)
-        API_TEST_TARGET="aws"
-        print_debug 2 "AWS Bedrock provider selected"
-        shift
-        ;;
-      --openai)
-        API_TEST_TARGET="openai"
-        print_debug 2 "OpenAI provider selected"
-        shift
-        ;;
-      --*)
-        print_status "error" "Unknown option: $1"
-        printf "$(c BRIGHT_CYAN)Try: %s --help$(c RESET)\n" "$0"
-        exit 1
-        ;;
-      *)
-        if [ -z "$USER_MESSAGE" ]; then
-          USER_MESSAGE="$1"
-        else
-          USER_MESSAGE="$USER_MESSAGE $1"
-        fi
-        shift
-        ;;
-    esac
+    arg="$1"
+    if [ "$arg" = "-h" ] || [ "$arg" = "--help" ]; then
+      print_help; exit 0
+    elif [ "$arg" = "--version" ]; then
+      printf "Enhanced LLM API Testing Tool v%s\n" "$SCRIPT_VERSION"; exit 0
+    elif [ "$arg" = "--stream" ]; then
+      STREAM_FLAG=1; print_debug 2 "Streaming mode enabled"; shift
+    elif [ "$arg" = "--raw" ]; then
+      RAW_FLAG=1; print_debug 2 "Raw output mode enabled"; shift
+    elif [ "$arg" = "--insecure" ]; then
+      INSECURE_FLAG=1; print_debug 1 "Insecure mode enabled (-k)"; shift
+    elif [ "$arg" = "--debug" ]; then
+      if [ -n "${2:-}" ] && [[ "$2" =~ ^[0-2]$ ]]; then
+        DEBUG="$2"; print_debug 1 "Debug level set to $DEBUG"; shift 2
+      else
+        print_status "error" "Invalid debug level. Use 0, 1, or 2"; exit 1
+      fi
+    elif [[ "$arg" == --debug=* ]]; then
+      debug_val="${arg#--debug=}"
+      if [[ "$debug_val" =~ ^[0-2]$ ]]; then
+        DEBUG="$debug_val"; print_debug 1 "Debug level set to $DEBUG"; shift
+      else
+        print_status "error" "Invalid debug level. Use 0, 1, or 2"; exit 1
+      fi
+    elif [ "$arg" = "--file" ]; then
+      file_choice="${2:-2}"
+      if [[ "$file_choice" =~ ^[12]$ ]]; then
+        [ "$file_choice" = "1" ] && INCLUDE_FILE_FLAG=1 || INCLUDE_FILE_FLAG=0
+        print_debug 2 "File attachment mode: $INCLUDE_FILE_FLAG"; shift 2
+      else
+        print_status "error" "Invalid file option. Use 1 (yes) or 2 (no)"; exit 1
+      fi
+    elif [[ "$arg" == --file=* ]]; then
+      file_choice="${arg#--file=}"
+      if [[ "$file_choice" =~ ^[12]$ ]]; then
+        [ "$file_choice" = "1" ] && INCLUDE_FILE_FLAG=1 || INCLUDE_FILE_FLAG=0
+        print_debug 2 "File attachment mode: $INCLUDE_FILE_FLAG"; shift
+      else
+        print_status "error" "Invalid file option. Use 1 (yes) or 2 (no)"; exit 1
+      fi
+    elif [ "$arg" = "--conn" ]; then
+      if [ -n "${2:-}" ]; then
+        API_TEST_TARGET="$2"; print_debug 2 "Connection target set to: $API_TEST_TARGET"; shift 2
+      else
+        print_status "error" "--conn requires a provider argument"; exit 1
+      fi
+    elif [[ "$arg" == --conn=* ]]; then
+      API_TEST_TARGET="${arg#--conn=}"; print_debug 2 "Connection target set to: $API_TEST_TARGET"; shift
+    elif [ "$arg" = "--openwebui" ]; then
+      API_TEST_TARGET="openwebui"; print_debug 2 "OpenWebUI provider selected"; shift
+    elif [ "$arg" = "--bag" ]; then
+      API_TEST_TARGET="bag"; print_debug 2 "Bedrock Access Gateway provider selected"; shift
+    elif [ "$arg" = "--aws" ]; then
+      API_TEST_TARGET="aws"; print_debug 2 "AWS Bedrock provider selected"; shift
+    elif [ "$arg" = "--openai" ]; then
+      API_TEST_TARGET="openai"; print_debug 2 "OpenAI provider selected"; shift
+    elif [[ "$arg" == --* ]]; then
+      print_status "error" "Unknown option: $arg"; printf "$(c BRIGHT_CYAN)Try: %s --help$(c RESET)\n" "$0"; exit 1
+    else
+      if [ -z "$USER_MESSAGE" ]; then
+        USER_MESSAGE="$arg"
+      else
+        USER_MESSAGE="$USER_MESSAGE $arg"
+      fi
+      shift
+    fi
   done
   
   print_debug 1 "Command line parsing complete"
   
   # Show enhanced welcome
   if [ "$DEBUG" -eq 0 ]; then
-    print_header "Enhanced LLM API Testing Tool" "v$SCRIPT_VERSION • Modern • Reliable"
+    print_header "Enhanced LLM API Testing Tool" "v$SCRIPT_VERSION - Modern - Reliable"
   fi
   
   # Load and validate environment
@@ -2151,26 +2177,25 @@ main() {
   # Get user message if not provided
   if [ -z "$USER_MESSAGE" ]; then
     if [ -t 0 ]; then
-      printf "\n$(c BRIGHT_WHITE)$(e THINKING)Enter your prompt$(c RESET) $(c DIM)(or press Enter to leave empty/null for testing):$(c RESET)\n"
+      printf "\n$(c BRIGHT_WHITE)$(e THINKING)Enter your prompt$(c RESET) $(c DIM)(press Enter to keep empty):$(c RESET)\n"
       printf "$(c BRIGHT_CYAN)❯ $(c RESET)"
       read -r USER_MESSAGE || true
     fi
-    
-    if [ -z "${USER_MESSAGE:-}" ]; then
-      USER_MESSAGE="Hello! This is a connectivity test."
-      print_status "info" "Using default connectivity test message"
-    fi
+    # Leave empty/null if not provided
   fi
   
   print_debug 1 "User message length: ${#USER_MESSAGE} characters"
   
   # Normalize numeric connection targets
-  case "${API_TEST_TARGET:-}" in
-    1) API_TEST_TARGET="openwebui" ;;
-    2) API_TEST_TARGET="bag" ;;
-    3) API_TEST_TARGET="aws" ;;
-    4) API_TEST_TARGET="openai" ;;
-  esac
+  if [ "${API_TEST_TARGET:-}" = "1" ]; then
+    API_TEST_TARGET="openwebui"
+  elif [ "${API_TEST_TARGET:-}" = "2" ]; then
+    API_TEST_TARGET="bag"
+  elif [ "${API_TEST_TARGET:-}" = "3" ]; then
+    API_TEST_TARGET="aws"
+  elif [ "${API_TEST_TARGET:-}" = "4" ]; then
+    API_TEST_TARGET="openai"
+  fi
   
   # Select connection if not specified
   if [ -z "$API_TEST_TARGET" ]; then
@@ -2245,6 +2270,11 @@ cleanup() {
   # Reset terminal if needed
   if [ "$USE_COLORS" -eq 1 ]; then
     printf "$(c RESET)"
+  fi
+  
+  # Remove persisted payload file
+  if [ -n "${PAYLOAD_FILE:-}" ] && [ -f "$PAYLOAD_FILE" ]; then
+    rm -f "$PAYLOAD_FILE"
   fi
   
   exit $exit_code
