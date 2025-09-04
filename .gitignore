@@ -1,0 +1,25 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Docker-related
+docker-compose.override.yml
+.docker/
+
+# App data and backups
+backups/
+data/
+
+# Logs and temp files
+*.log
+*.swp
+*~
+
+# IDE/editor
+.vscode/
+.idea/
+*.code-workspace
+
+# macOS
+.DS_Store

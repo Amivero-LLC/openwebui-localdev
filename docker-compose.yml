@@ -1,0 +1,22 @@
+services:
+  open-webui:
+    image: ${IMAGE}:${TAG}
+    container_name: ${CONTAINER_NAME}
+    restart: unless-stopped
+    ports:
+      - "${PORT}:8080"
+    environment:
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      OPENAI_API_BASE_URLS: "${OPENAI_API_BASE_URLS}"
+      PROCESS_IN_BACKGROUND: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - type: volume
+        source: data            # ← reference the key below
+        target: /app/backend/data
+
+volumes:
+  data:                         # ← YAML key must be static
+    name: ${VOLUME_NAME:-open-webui}   # ← actual Docker volume name can use env var
