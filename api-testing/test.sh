@@ -91,6 +91,13 @@ USE_ANIMATIONS=0
 SUPPORTS_UTF8=0
 
 # Enhanced feature detection
+#
+# Function: detect_terminal_capabilities
+# Description: Detects terminal capabilities (TTY, colors, UTF-8, animations)
+#   and sets global flags used by UI helpers.
+# Inputs: none
+# Globals set: USE_COLORS, USE_EMOJIS, USE_ANIMATIONS, SUPPORTS_UTF8
+# Returns: 0 (always)
 detect_terminal_capabilities() {
   # Check if stdout/stderr are TTY
   if [ -t 1 ] && [ -t 2 ]; then
@@ -120,6 +127,15 @@ detect_terminal_capabilities() {
 detect_terminal_capabilities
 
 # Enhanced color/emoji helper functions (portable)
+#
+# Function: c
+# Description: Emits ANSI color code for a symbolic color/style name when
+#   colors are enabled for the terminal.
+# Inputs:
+#   $1: Symbolic color/style (e.g., BRIGHT_CYAN, BOLD, BG_RED)
+# Globals read: USE_COLORS, color constants defined above
+# Output: Writes escape sequence to stdout (no trailing newline)
+# Returns: 0
 c() {
   [ "$USE_COLORS" -eq 1 ] || return 0
   case "$1" in
@@ -166,6 +182,14 @@ c() {
   esac
 }
 
+# Function: e
+# Description: Emits an emoji (plus trailing space) for a symbolic name when
+#   UTF-8 is supported/emojis are enabled.
+# Inputs:
+#   $1: Symbolic emoji name (e.g., CHECK, ERROR, ROBOT)
+# Globals read: USE_EMOJIS
+# Output: Writes emoji to stdout (no trailing newline)
+# Returns: 0
 e() {
   [ "$USE_EMOJIS" -eq 1 ] || return 0
   case "$1" in
@@ -235,6 +259,15 @@ e() {
 }
 
 # Progress bar function
+#
+# Function: show_progress
+# Description: Renders a single-line progress bar with percentage and counts.
+# Inputs:
+#   $1: current value (int)
+#   $2: total value (int)
+# Globals read: USE_COLORS
+# Output: Prints progress bar to stdout using a carriage return (\r)
+# Returns: 0
 show_progress() {
   local current="$1"
   local total="$2"
@@ -250,6 +283,15 @@ show_progress() {
 }
 
 # Spinner animation
+#
+# Function: show_spinner
+# Description: Displays a spinner until the given PID exits.
+# Inputs:
+#   $1: PID to watch
+#   $2: Optional message to display alongside spinner
+# Globals read: USE_ANIMATIONS, USE_COLORS
+# Output: Spinner frames rendered to stdout; final checkmark line on completion
+# Returns: 0
 show_spinner() {
   local pid="$1"
   local message="${2:-Working...}"
@@ -304,6 +346,17 @@ if [ "$SUPPORTS_UTF8" -eq 0 ]; then
 fi
 
 # Draw a box around content
+#
+# Function: draw_box
+# Description: Draws a titled box around the provided multi-line content.
+# Inputs:
+#   $1: Title string (may be empty)
+#   $2: Content (may be multi-line)
+#   $3: Width (optional, default 60)
+#   $4: Color name (optional, default BRIGHT_CYAN)
+# Globals read: BOX_* glyphs, USE_COLORS
+# Output: Boxed content printed to stdout
+# Returns: 0
 draw_box() {
   local title="$1"
   local content="$2"
@@ -336,6 +389,14 @@ draw_box() {
 }
 
 # Enhanced header with gradient effect
+# Function: print_header
+# Description: Prints a decorative header with a title and optional subtitle.
+# Inputs:
+#   $1: Title
+#   $2: Subtitle (optional)
+# Globals read: USE_COLORS
+# Output: Header block to stdout
+# Returns: 0
 print_header() {
   local title="$1"
   local subtitle="${2:-}"
@@ -365,6 +426,14 @@ print_header() {
 }
 
 # Section headers with improved styling
+# Function: print_section
+# Description: Prints a section header with an optional emoji and color.
+# Inputs:
+#   $1: Title
+#   $2: Emoji key (optional, default PACKAGE)
+#   $3: Color name (optional, default BRIGHT_BLUE)
+# Output: Section header to stdout
+# Returns: 0
 print_section() {
   local title="$1"
   local emoji="${2:-PACKAGE}"
@@ -375,6 +444,13 @@ print_section() {
 }
 
 # Status indicators with consistent styling
+# Function: print_status
+# Description: Prints a standardized status line with color and emoji.
+# Inputs:
+#   $1: Status (success|error|warning|info|loading|...)
+#   $2: Message
+# Output: Single status line to stdout
+# Returns: 0
 print_status() {
   local status="$1"
   local message="$2"
@@ -412,6 +488,16 @@ print_status() {
 }
 
 # Enhanced key-value display with better alignment
+# Function: print_kv
+# Description: Prints a labeled key/value row with optional emoji and indent.
+# Inputs:
+#   $1: Key label
+#   $2: Value text
+#   $3: Emoji key (optional)
+#   $4: Indent spaces (optional, default 2)
+#   $5: Key width (optional, default 20)
+# Output: Formatted line to stdout
+# Returns: 0
 print_kv() {
   local key="$1"
   local value="$2"
@@ -432,6 +518,15 @@ print_kv() {
 }
 
 # Progress step indicator
+# Function: print_step
+# Description: Displays a progress step marker with an overall count and state.
+# Inputs:
+#   $1: Current step number
+#   $2: Total steps
+#   $3: Description
+#   $4: Status (active|complete|pending|error; default active)
+# Output: Step line to stdout
+# Returns: 0
 print_step() {
   local step_num="$1"
   local total_steps="$2"
@@ -465,6 +560,14 @@ print_step() {
 }
 
 # Collapsible section (simulated with indentation)
+# Function: print_collapsible
+# Description: Renders a pseudo-collapsible block; if expanded, indents content.
+# Inputs:
+#   $1: Title
+#   $2: Content (multi-line)
+#   $3: Expanded flag (1=expanded, 0=collapsed; default 1)
+# Output: Collapsible header and optional content to stdout
+# Returns: 0
 print_collapsible() {
   local title="$1"
   local content="$2"
@@ -479,6 +582,11 @@ print_collapsible() {
 }
 
 # Table formatting
+# Function: print_table_header
+# Description: Prints a simple fixed-width table header from given column names.
+# Inputs: variadic list of column names
+# Output: Header row plus divider line
+# Returns: 0
 print_table_header() {
   local -a headers=("$@")
   local total_width=0
@@ -496,6 +604,11 @@ print_table_header() {
   printf "$(c RESET)\n"
 }
 
+# Function: print_table_row
+# Description: Prints a simple fixed-width table row from provided cell values.
+# Inputs: variadic list of cell values
+# Output: Row to stdout
+# Returns: 0
 print_table_row() {
   local -a cells=("$@")
   local col_width=20
@@ -511,6 +624,13 @@ print_table_row() {
 # =====================================
 
 # Enhanced environment loading with validation
+# Function: load_environment
+# Description: Loads api-testing/.env, validates required vars, and displays
+#   progress messages. Exits with a helpful message if not found or invalid.
+# Inputs: none
+# Globals set: MAX_TOKENS, TEMPERATURE (if provided), others exported by .env
+# Output: Status lines to stdout/stderr
+# Returns: Exits non-zero on failure
 load_environment() {
   print_section "Environment Configuration" "GEAR" "BRIGHT_MAGENTA"
   
@@ -563,6 +683,14 @@ load_environment() {
 }
 
 # Enhanced connection health check
+# Function: check_connection_health
+# Description: Performs DNS, connectivity, and SSL checks against a base URL.
+# Inputs:
+#   $1: Provider key (openwebui|bag|aws|openai)
+#   $2: Base URL to test
+# Globals read: INSECURE_FLAG
+# Output: Progress/status lines to stdout; errors to stderr
+# Returns: 0 on healthy; 1 on failure
 check_connection_health() {
   local target="$1"
   local base_url="$2"
@@ -626,6 +754,14 @@ check_connection_health() {
 }
 
 # Enhanced connection setup with health checks
+# Function: setup_connection
+# Description: Resolves provider-specific configuration, validates required
+#   variables, sets endpoint URL, and optionally runs a health check.
+# Inputs:
+#   $1: Provider key (openwebui|bag|aws|openai)
+# Globals set: BASE_URL, API_KEY, MODEL, URL, STREAM_FLAG (may disable for aws)
+# Output: Status lines to stdout
+# Returns: 0 on success; exits on unknown provider or missing vars
 setup_connection() {
   local target="$1"
   
@@ -688,6 +824,11 @@ setup_connection() {
 }
 
 # Helper function to check required variables
+# Function: check_required_vars
+# Description: Verifies that all provided environment variable names are set.
+# Inputs: list of variable names
+# Output: Prints missing variables and exits non-zero if any are unset
+# Returns: Exits on missing vars; otherwise 0
 check_required_vars() {
   local missing=()
   
@@ -707,6 +848,12 @@ check_required_vars() {
 }
 
 # Enhanced interactive connection selection with visual status (Bash 3 compatible)
+# Function: select_connection
+# Description: Interactive provider selection UI with availability detection.
+# Inputs: none (reads env for provider availability)
+# Globals set: API_TEST_TARGET
+# Output: Provider table and prompt to stdout
+# Returns: 0
 select_connection() {
   print_section "Provider Selection" "TARGET" "BRIGHT_MAGENTA"
   
@@ -817,6 +964,15 @@ select_connection() {
 }
 
 # Enhanced settings display with better organization
+# Function: display_settings
+# Description: Prints a formatted summary of the current configuration, including
+#   provider, model, endpoint, parameters, auth masking, and selected files.
+# Inputs: none
+# Globals read: API_TEST_TARGET, MODEL, BASE_URL, URL, MAX_TOKENS, TEMPERATURE,
+#   STREAM_FLAG, API_KEY, INCLUDE_FILE_FLAG, FILE_SELECTED_COUNT,
+#   SELECTED_FILES_FILE
+# Output: Summary to stdout
+# Returns: 0
 display_settings() {
   print_section "Configuration Summary" "SETTINGS" "BRIGHT_CYAN"
   
@@ -825,7 +981,8 @@ display_settings() {
   print_kv "Provider" "$(get_provider_display_name "$API_TEST_TARGET")" "TARGET" 2 15
   print_kv "Model" "$MODEL" "ROBOT" 2 15
   print_kv "Base URL" "$BASE_URL" "GLOBE" 2 15
-  print_kv "Endpoint" "$(truncate_url "$URL" 50)" "LINK" 2 15
+  # Show full endpoint URL without truncation
+  print_kv "Endpoint" "$URL" "LINK" 2 15
   
   # Request parameters
   printf "\n$(c BRIGHT_WHITE)$(c BOLD)Request Parameters:$(c RESET)\n"
@@ -866,6 +1023,12 @@ display_settings() {
 }
 
 # Helper functions for display
+# Function: get_provider_display_name
+# Description: Maps internal provider key to a human-friendly name.
+# Inputs:
+#   $1: Provider key
+# Output: Echoes display name
+# Returns: 0
 get_provider_display_name() {
   case "$1" in
     openwebui) echo "OpenWebUI" ;;
@@ -876,6 +1039,13 @@ get_provider_display_name() {
   esac
 }
 
+# Function: truncate_url
+# Description: Truncates a URL to max length with ellipsis.
+# Inputs:
+#   $1: URL
+#   $2: Max length (int)
+# Output: Echoes truncated string
+# Returns: 0
 truncate_url() {
   local url="$1"
   local max_len="$2"
@@ -887,6 +1057,13 @@ truncate_url() {
   fi
 }
 
+# Function: truncate_text
+# Description: Truncates arbitrary text to max length with ellipsis.
+# Inputs:
+#   $1: Text
+#   $2: Max length (int)
+# Output: Echoes truncated string
+# Returns: 0
 truncate_text() {
   local text="$1"
   local max_len="$2"
@@ -898,6 +1075,12 @@ truncate_text() {
   fi
 }
 
+# Function: mask_api_key
+# Description: Masks a sensitive API key showing first/last 4 characters.
+# Inputs:
+#   $1: Key string
+# Output: Echoes masked key (or **** if very short)
+# Returns: 0
 mask_api_key() {
   local key="$1"
   local key_len=${#key}
@@ -909,6 +1092,12 @@ mask_api_key() {
   fi
 }
 
+# Function: get_file_size
+# Description: Returns a human-readable size for a file path.
+# Inputs:
+#   $1: File path
+# Output: Echoes formatted size, "unknown size", or "not found"
+# Returns: 0
 get_file_size() {
   local file="$1"
   if [ -f "$file" ]; then
@@ -928,6 +1117,12 @@ get_file_size() {
   fi
 }
 
+# Function: format_file_size
+# Description: Formats a byte count as B, KB, or MB.
+# Inputs:
+#   $1: Size in bytes (int)
+# Output: Echoes formatted size
+# Returns: 0
 format_file_size() {
   local size="$1"
   
@@ -941,6 +1136,13 @@ format_file_size() {
 }
 
 # Enhanced request execution with detailed progress
+# Function: execute_request
+# Description: Orchestrates the request lifecycle: payload build, preview,
+#   send (streaming or not), and metrics collection.
+# Inputs:
+#   $1: User message/prompt
+# Output: Rich UI to stdout; returns based on underlying execution
+# Returns: 0 on success; non-zero on failure
 execute_request() {
   local user_message="$1"
   
@@ -990,6 +1192,16 @@ execute_request() {
 }
 
 # Build request payload with enhanced error handling
+# Function: build_request_payload
+# Description: Constructs the JSON payload for the selected provider using jq
+#   when available, falling back to a sed-based builder. Adds file attachments
+#   when selected.
+# Inputs:
+#   $1: User message/prompt
+# Globals read: STREAM_FLAG, API_TEST_TARGET, MAX_TOKENS, TEMPERATURE, MODEL,
+#   INCLUDE_FILE_FLAG, FILE_SELECTED_COUNT, SELECTED_FILES_FILE
+# Output: Echoes JSON payload
+# Returns: 0
 build_request_payload() {
   local user_message="$1"
   local payload=""
@@ -1066,6 +1278,13 @@ build_request_payload() {
 }
 
 # Fallback payload builder without jq
+# Function: build_payload_fallback
+# Description: Builds a minimal JSON payload without jq, with basic escaping.
+# Inputs:
+#   $1: User message/prompt
+# Globals read: STREAM_FLAG, API_TEST_TARGET, MAX_TOKENS, TEMPERATURE, MODEL
+# Output: Echoes JSON payload
+# Returns: 0
 build_payload_fallback() {
   local user_message="$1"
   local escaped_message
@@ -1103,6 +1322,14 @@ JSON
 }
 
 # Enhanced request preview
+# Function: show_request_preview
+# Description: Displays HTTP method, URL, headers (masked), and pretty-printed
+#   JSON payload where possible.
+# Inputs:
+#   $1: JSON payload
+# Globals read: URL, API_KEY
+# Output: Preview block to stdout
+# Returns: 0
 show_request_preview() {
   local payload="$1"
   
@@ -1111,7 +1338,8 @@ show_request_preview() {
   
   # Show HTTP details
   print_kv "Method" "POST" "ROCKET" 2 12
-  print_kv "URL" "$(truncate_url "$URL" 60)" "GLOBE" 2 12
+  # Show full request URL without truncation
+  print_kv "URL" "$URL" "GLOBE" 2 12
   print_kv "Content-Type" "application/json" "GEAR" 2 12
   print_kv "Authorization" "Bearer $(mask_api_key "$API_KEY")" "KEY" 2 12
   
@@ -1127,6 +1355,14 @@ show_request_preview() {
 }
 
 # Enhanced streaming request with better error handling and progress
+# Function: execute_streaming_request
+# Description: Sends the request and streams token deltas as they arrive. Performs
+#   a pre-flight request and optionally retries with -k for SSL issues.
+# Inputs:
+#   $1: JSON payload
+# Globals read: URL, API_KEY, INSECURE_FLAG, INSECURE_RUNTIME
+# Output: Streams model content to stdout; prints token estimate at end
+# Returns: 0 on success; non-zero on transport error
 execute_streaming_request() {
   local payload="$1"
   
@@ -1227,6 +1463,14 @@ execute_streaming_request() {
 }
 
 # Enhanced non-streaming request with detailed response analysis
+# Function: execute_non_streaming_request
+# Description: Sends the request and waits for full response. Shows a waiting
+#   indicator, retries with -k for SSL issues, and handles HTTP status classes.
+# Inputs:
+#   $1: JSON payload
+# Globals read: URL, API_KEY, INSECURE_FLAG, INSECURE_RUNTIME
+# Output: Response details or errors to stdout/stderr
+# Returns: 0 on success; non-zero on error
 execute_non_streaming_request() {
   local payload="$1"
   local response_file
@@ -1305,6 +1549,14 @@ execute_non_streaming_request() {
 }
 
 # Show detailed response information
+# Function: show_response_details
+# Description: Pretty-prints response, extracts content and usage stats (via jq
+#   when available), and honors raw output mode.
+# Inputs:
+#   $1: Raw response body
+# Globals read: API_TEST_TARGET, RAW_FLAG
+# Output: Details to stdout
+# Returns: 0
 show_response_details() {
   local response="$1"
   
@@ -1349,6 +1601,13 @@ show_response_details() {
 }
 
 # Show error details with helpful suggestions
+# Function: show_error_details
+# Description: Shows parsed error message/type if possible and troubleshooting
+#   suggestions; prints full JSON error for debugging.
+# Inputs:
+#   $1: Raw error body
+# Output: Error details and hints to stdout/stderr
+# Returns: 0
 show_error_details() {
   local error_response="$1"
   
@@ -1383,6 +1642,14 @@ show_error_details() {
 }
 
 # Show response metrics and performance data
+# Function: show_response_metrics
+# Description: Displays duration, provider, model, streaming flag, and a
+#   coarse performance rating based on duration.
+# Inputs:
+#   $1: Duration in seconds (float or int)
+# Globals read: API_TEST_TARGET, MODEL, STREAM_FLAG
+# Output: Metrics to stdout
+# Returns: 0
 show_response_metrics() {
   local duration="$1"
   
@@ -1426,6 +1693,13 @@ show_response_metrics() {
 }
 
 # Enhanced file selection with better UX
+# Function: select_files_interactive
+# Description: Interactive helper to select zero, one, or all .txt files from a
+#   known files directory; writes the selection to a temp file for later use.
+# Inputs: none
+# Globals set: INCLUDE_FILE_FLAG, FILE_SELECTED_COUNT, SELECTED_FILES_FILE
+# Output: Menu and selection feedback to stdout
+# Returns: Exits on fatal errors (no files directory), otherwise 0
 select_files_interactive() {
   local script_dir="$(dirname "$0")"
   local files_dir=""
@@ -1536,6 +1810,12 @@ select_files_interactive() {
 }
 
 # Enhanced help with better formatting and examples
+# Function: print_help
+# Description: Displays a comprehensive help screen with usage, options,
+#   environment variables, examples, and troubleshooting guidance.
+# Inputs: none
+# Output: Help text to stdout
+# Returns: 0
 print_help() {
   print_header "Enhanced LLM API Testing Tool" "Modern • Intuitive • Comprehensive"
   
@@ -1645,6 +1925,15 @@ EOF
 }
 
 # Enhanced debug logging
+# Function: print_debug
+# Description: Conditional debug logger honoring the DEBUG level; includes a
+#   timestamp and writes to stderr. Level 2 implies set -x (configured in main).
+# Inputs:
+#   $1: Required level for this message
+#   $@: Message text after level
+# Globals read: DEBUG
+# Output: Debug line to stderr
+# Returns: 0 when printed or skipped
 print_debug() {
   if [ "${DEBUG:-0}" != "0" ]; then
     local level="${1:-1}"
@@ -1660,6 +1949,14 @@ print_debug() {
 }
 
 # Main execution flow with enhanced error handling
+# Function: main
+# Description: Entry point — parses flags, loads environment, guides interactive
+#   selections, sets up provider connection, shows summary, and executes the
+#   request, handling cleanup and exit codes.
+# Inputs: CLI arguments
+# Globals set: many runtime flags and connection vars; see sections below
+# Output: Full interactive flow and results to stdout/stderr
+# Returns: Exits with 0 on success; non-zero on failures
 main() {
   # Initialize defaults with better organization
   local -r SCRIPT_VERSION="2.0.0"
@@ -1929,6 +2226,12 @@ main() {
 }
 
 # Trap for cleanup on script termination
+# Function: cleanup
+# Description: Trap handler to remove temp files and reset terminal styling.
+# Inputs: none (uses last exit code via $?)
+# Globals read: SELECTED_FILES_FILE, USE_COLORS
+# Output: Minimal debug and terminal reset
+# Returns: Exits with the captured exit code
 cleanup() {
   local exit_code=$?
   print_debug 2 "Cleanup function called with exit code: $exit_code"
