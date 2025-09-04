@@ -10,6 +10,7 @@ docker-compose.override.yml
 # App data and backups
 backups/
 data/
+hf-cache/
 
 # Logs and temp files
 *.log

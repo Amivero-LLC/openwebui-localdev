@@ -25,12 +25,21 @@ services:
       - "${DOCLING_PORT}:5001"
     environment:
       DOCLING_SERVE_ENABLE_UI: "1"
+      DOCLING_SERVE_ENABLE_REMOTE_SERVICES: "1"
+      DOCLING_SERVE_ARTIFACTS_PATH: ""
+      HF_HOME: "${HF_HOME}"
+      TRANSFORMERS_CACHE: "${TRANSFORMERS_CACHE}"
+      HUGGINGFACE_HUB_TOKEN: "${HUGGINGFACE_HUB_TOKEN:-}"
+      HUGGINGFACE_HUB_OFFLINE: "1"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - type: volume
         source: docling-cache
-        target: /root/.cache
+        target: /opt/app-root/src/.cache
+      - type: bind
+        source: ./hf-cache
+        target: /opt/app-root/src/.cache/huggingface
 
 volumes:
   data:                         # ← YAML key must be static
