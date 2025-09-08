@@ -6,6 +6,7 @@ services:
     ports:
       - "${PORT}:8080"
     environment:
+      GLOBAL_LOG_LEVEL: "${GLOBAL_LOG_LEVEL:-INFO}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL}"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       OPENAI_API_BASE_URLS: "${OPENAI_API_BASE_URLS}"

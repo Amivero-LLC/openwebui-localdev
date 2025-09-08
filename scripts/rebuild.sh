@@ -2,12 +2,14 @@
 # Rebuild (delete and recreate) the Open WebUI + Docling environment.
 # - Stops containers
 # - Removes networks and declared volumes (data loss!)
+# - PRUNES unused Docker resources system-wide (containers, images, networks,
+#   and volumes) via `docker system prune -a --volumes -f`
 # - Pulls latest images (respecting .env IMAGE/TAG, DOCLING_IMAGE/TAG)
 # - Recreates containers fresh
 #
 # Usage:
 #   scripts/rebuild.sh [--yes]
-#     --yes   Proceed without interactive confirmation (destructive)
+#     --yes   Proceed without interactive confirmation (DESTRUCTIVE)
 
 set -euo pipefail
 
@@ -23,8 +25,9 @@ fi
 
 warn() { printf "\033[33m%s\033[0m\n" "$*"; }
 
-warn "This will DELETE volumes and all application data."
+warn "This will DELETE volumes and all application data for this stack."
 warn "Volume to be removed: ${VOLUME_NAME:-open-webui} (and docling-cache)"
+warn "This will also RUN 'docker system prune -a --volumes -f' which removes unused containers, images, networks, and volumes across your system."
 
 if [[ "$CONFIRM" == "ask" ]]; then
   if [ -t 0 ]; then
@@ -45,6 +48,9 @@ docker compose down -v --remove-orphans
 # Attempt to remove the named data volume explicitly (ignore errors)
 docker volume rm "${VOLUME_NAME:-open-webui}" >/dev/null 2>&1 || true
 
+echo "Pruning unused Docker resources (containers, images, networks, volumes)..."
+docker system prune -a --volumes -f
+
 echo "Pulling latest images..."
 docker compose pull
 
@@ -57,4 +63,3 @@ echo "  - Open WebUI: http://localhost:${PORT:-4000}"
 echo "  - Docling:    http://localhost:${DOCLING_PORT:-5001}"
 echo
 docker compose ps
-
