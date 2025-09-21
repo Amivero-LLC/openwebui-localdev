@@ -7,9 +7,42 @@ services:
       - "${PORT}:8080"
     environment:
       GLOBAL_LOG_LEVEL: "${GLOBAL_LOG_LEVEL:-INFO}"
+      WEBUI_LOG_LEVEL: "${WEBUI_LOG_LEVEL:-INFO}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL}"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       OPENAI_API_BASE_URLS: "${OPENAI_API_BASE_URLS}"
+      OPENAI_MODEL: "${OPENAI_MODEL}"
+      VECTOR_DB: "${VECTOR_DB}"
+      PGVECTOR_DB_URL: "${PGVECTOR_DB_URL}"
+      CORS_ALLOW_ORIGIN: "${CORS_ALLOW_ORIGIN}"
+      ENABLE_SIGNUP: "${ENABLE_SIGNUP}"
+      ENABLE_LOGIN_FORM: "${ENABLE_LOGIN_FORM}"
+      ENABLE_OAUTH_SIGNUP: "${ENABLE_OAUTH_SIGNUP}"
+      ENABLE_OAUTH_ROLE_MANAGEMENT: "${ENABLE_OAUTH_ROLE_MANAGEMENT}"
+      ENABLE_OAUTH_GROUP_MANAGEMENT: "${ENABLE_OAUTH_GROUP_MANAGEMENT}"
+      OAUTH_SCOPES: "${OAUTH_SCOPES}"
+      OAUTH_ROLES_CLAIM: "${OAUTH_ROLES_CLAIM}"
+      OAUTH_ADMIN_ROLES: "${OAUTH_ADMIN_ROLES}"
+      OAUTH_ALLOWED_ROLES: "${OAUTH_ALLOWED_ROLES}"
+      OAUTH_MERGE_ACCOUNTS_BY_EMAIL: "${OAUTH_MERGE_ACCOUNTS_BY_EMAIL}"
+      OAUTH_UPDATE_PICTURE_ON_LOGIN: "${OAUTH_UPDATE_PICTURE_ON_LOGIN}"
+      DEFAULT_USER_ROLE: "${DEFAULT_USER_ROLE}"
+      ENABLE_SIGNUP_APPROVAL: "${ENABLE_SIGNUP_APPROVAL}"
+      SHOW_ADMIN_DETAILS: "${SHOW_ADMIN_DETAILS}"
+      CONTENT_EXTRACTION_ENGINE: "${CONTENT_EXTRACTION_ENGINE}"
+      TIKA_SERVER_URL: "${TIKA_SERVER_URL}"
+      ENABLE_RAG_WEB_SEARCH: "${ENABLE_RAG_WEB_SEARCH}"
+      RAG_WEB_SEARCH_ENGINE: "${RAG_WEB_SEARCH_ENGINE}"
+      RAG_WEB_SEARCH_RESULT_COUNT: "${RAG_WEB_SEARCH_RESULT_COUNT}"
+      RAG_WEB_SEARCH_CONCURRENT_REQUESTS: "${RAG_WEB_SEARCH_CONCURRENT_REQUESTS}"
+      ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION: "${ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION}"
+      RAG_WEB_SEARCH_DOMAIN_FILTER_LIST: "${RAG_WEB_SEARCH_DOMAIN_FILTER_LIST}"
+      ENABLE_WEB_SEARCH: "${ENABLE_WEB_SEARCH}"
+      WEB_SEARCH_ENGINE: "${WEB_SEARCH_ENGINE}"
+      WEB_SEARCH_RESULT_COUNT: "${WEB_SEARCH_RESULT_COUNT}"
+      WEB_SEARCH_CONCURRENT_REQUESTS: "${WEB_SEARCH_CONCURRENT_REQUESTS}"
+      ENABLE_WEB_LOADER_SSL_VERIFICATION: "${ENABLE_WEB_LOADER_SSL_VERIFICATION}"
+      WEB_SEARCH_DOMAIN_FILTER_LIST: "${WEB_SEARCH_DOMAIN_FILTER_LIST}"
       PROCESS_IN_BACKGROUND: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -17,6 +50,10 @@ services:
       - type: volume
         source: data            # ← reference the key below
         target: /app/backend/data
+    depends_on:
+      - postgres
+      - ollama
+      - tika
 
   docling:
     image: ${DOCLING_IMAGE}:${DOCLING_TAG}
@@ -25,7 +62,7 @@ services:
     ports:
       - "${DOCLING_PORT}:5001"
     environment:
-      DOCLING_SERVE_ENABLE_UI: "1"
+      DOCLING_SERVE_ENABLE_UI: "${DOCLING_SERVE_ENABLE_UI:-false}"
       DOCLING_SERVE_ENABLE_REMOTE_SERVICES: "1"
       DOCLING_SERVE_ARTIFACTS_PATH: ""
       HF_HOME: "${HF_HOME}"
@@ -42,7 +79,40 @@ services:
         source: ./hf-cache
         target: /opt/app-root/src/.cache/huggingface
 
+  ollama:
+    image: ${OLLAMA_IMAGE}:${OLLAMA_TAG}
+    container_name: ${OLLAMA_CONTAINER_NAME}
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: ollama-models
+        target: /root/.ollama
+
+  tika:
+    image: ${TIKA_IMAGE}:${TIKA_TAG}
+    container_name: ${TIKA_CONTAINER_NAME}
+    restart: unless-stopped
+    ports:
+      - "${TIKA_PORT}:9998"
+
+  postgres:
+    image: stephenshelton/pgvector:pg17
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB}"
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - type: volume
+        source: postgres-data
+        target: /var/lib/postgresql/data
+
 volumes:
   data:                         # ← YAML key must be static
     name: ${VOLUME_NAME:-open-webui}   # ← actual Docker volume name can use env var
   docling-cache:
+  ollama-models:
+  postgres-data:
