@@ -1,4 +1,6 @@
+# Docker Compose stack for AmiChat on Open WebUI.
 services:
+  # Primary Open WebUI application surfaced to end users.
   open-webui:
     image: ${IMAGE}:${TAG}
     container_name: ${CONTAINER_NAME}
@@ -12,8 +14,14 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       OPENAI_API_BASE_URLS: "${OPENAI_API_BASE_URLS}"
       OPENAI_MODEL: "${OPENAI_MODEL}"
+      WEBUI_SECRET_KEY: "${WEBUI_SECRET_KEY}"
       VECTOR_DB: "${VECTOR_DB}"
-      PGVECTOR_DB_URL: "${PGVECTOR_DB_URL}"
+      DATABASE_URL: "${PGVECTOR_DB_URL}"
+      DATABASE_TYPE: "${DATABASE_TYPE}"
+      DATABASE_USER: "${POSTGRES_USER}"
+      DATABASE_PASSWORD: "${POSTGRES_PASSWORD}"
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: "${POSTGRES_DB}"
       CORS_ALLOW_ORIGIN: "${CORS_ALLOW_ORIGIN}"
       ENABLE_SIGNUP: "${ENABLE_SIGNUP}"
       ENABLE_LOGIN_FORM: "${ENABLE_LOGIN_FORM}"
@@ -37,12 +45,8 @@ services:
       RAG_WEB_SEARCH_CONCURRENT_REQUESTS: "${RAG_WEB_SEARCH_CONCURRENT_REQUESTS}"
       ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION: "${ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION}"
       RAG_WEB_SEARCH_DOMAIN_FILTER_LIST: "${RAG_WEB_SEARCH_DOMAIN_FILTER_LIST}"
-      ENABLE_WEB_SEARCH: "${ENABLE_WEB_SEARCH}"
-      WEB_SEARCH_ENGINE: "${WEB_SEARCH_ENGINE}"
-      WEB_SEARCH_RESULT_COUNT: "${WEB_SEARCH_RESULT_COUNT}"
-      WEB_SEARCH_CONCURRENT_REQUESTS: "${WEB_SEARCH_CONCURRENT_REQUESTS}"
-      ENABLE_WEB_LOADER_SSL_VERIFICATION: "${ENABLE_WEB_LOADER_SSL_VERIFICATION}"
-      WEB_SEARCH_DOMAIN_FILTER_LIST: "${WEB_SEARCH_DOMAIN_FILTER_LIST}"
+      GOOGLE_PSE_API_KEY: "${GOOGLE_PSE_API_KEY}"
+      GOOGLE_PSE_ENGINE_ID: "${GOOGLE_PSE_ENGINE_ID}"
       PROCESS_IN_BACKGROUND: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -51,10 +55,14 @@ services:
         source: data            # ← reference the key below
         target: /app/backend/data
     depends_on:
-      - postgres
-      - ollama
-      - tika
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      tika:
+        condition: service_started
 
+  # Optional Docling parser for richer document extraction.
   docling:
     image: ${DOCLING_IMAGE}:${DOCLING_TAG}
     container_name: ${DOCLING_CONTAINER_NAME}
@@ -79,6 +87,7 @@ services:
         source: ./hf-cache
         target: /opt/app-root/src/.cache/huggingface
 
+  # Ollama daemon hosting local models inside the compose network.
   ollama:
     image: ${OLLAMA_IMAGE}:${OLLAMA_TAG}
     container_name: ${OLLAMA_CONTAINER_NAME}
@@ -88,6 +97,7 @@ services:
         source: ollama-models
         target: /root/.ollama
 
+  # Apache Tika service used when CONTENT_EXTRACTION_ENGINE=tika.
   tika:
     image: ${TIKA_IMAGE}:${TIKA_TAG}
     container_name: ${TIKA_CONTAINER_NAME}
@@ -95,14 +105,24 @@ services:
     ports:
       - "${TIKA_PORT}:9998"
 
+  # Managed PostgreSQL + pgvector backing store for chat data.
   postgres:
     image: stephenshelton/pgvector:pg17
+    platform: linux/amd64
     container_name: postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: "${POSTGRES_DB}"
       POSTGRES_USER: "${POSTGRES_USER}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     ports:
       - "5432:5432"
     volumes:
@@ -111,8 +131,12 @@ services:
         target: /var/lib/postgresql/data
 
 volumes:
+  # Shared application data persisted between runs.
   data:                         # ← YAML key must be static
     name: ${VOLUME_NAME:-open-webui}   # ← actual Docker volume name can use env var
+  # Cache for Docling artifacts when the container pulls models.
   docling-cache:
+  # Ollama models live here so they survive container recreations.
   ollama-models:
+  # PostgreSQL data files (pgvector) persist across restarts.
   postgres-data:

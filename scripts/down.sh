@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Stop the stack without deleting volumes.
-# - Stops and removes containers and networks
-# - Keeps persistent data volumes intact
+# Stop the AmiChat stack without touching persistent volumes.
+# - Halts containers and removes compose networks
+# - Leaves data for PostgreSQL, Open WebUI, Docling cache, and Ollama models intact
 #
 # Usage: scripts/down.sh
 

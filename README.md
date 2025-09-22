@@ -81,6 +81,12 @@ It provides a batteries‑included Docker setup, clear lifecycle scripts, and en
 - Compose services and volumes are defined in `docker-compose.yml`.
 - Example values and usage notes live in `.env.example:1`.
 
+## Preset Backups
+
+- The `presets/` directory stores AmiChat preset exports for the predefined Workspace Models and Bedrock Connection models.
+- Open WebUI does not import these automatically; once the environment is running, upload them manually through the AmiChat/Open WebUI interface to make the presets available.
+- `presets/README.md:1` contains quick reminders for the workflow so teams remember to restore the presets after a fresh deploy or rebuild.
+
 ## Lifecycle Scripts
 
 All scripts are in `scripts/` and are safe to run from the repo root.

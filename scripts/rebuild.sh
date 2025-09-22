@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Rebuild (delete and recreate) the Open WebUI + Docling environment.
-# - Stops containers
+# Rebuild (delete and recreate) the full AmiChat environment.
+# - Stops containers for Open WebUI, PostgreSQL, Tika, Ollama, and Docling
 # - Removes networks and declared volumes (data loss!)
 # - PRUNES unused Docker resources system-wide (containers, images, networks,
 #   and volumes) via `docker system prune -a --volumes -f`
-# - Pulls latest images (respecting .env IMAGE/TAG, DOCLING_IMAGE/TAG)
+# - Pulls latest images (respecting .env IMAGE/TAG, DOCLING_IMAGE/TAG, etc.)
 # - Recreates containers fresh
 #
 # Usage:
@@ -26,7 +26,7 @@ fi
 warn() { printf "\033[33m%s\033[0m\n" "$*"; }
 
 warn "This will DELETE volumes and all application data for this stack."
-warn "Volume to be removed: ${VOLUME_NAME:-open-webui} (and docling-cache)"
+warn "Volumes to be removed: ${VOLUME_NAME:-open-webui}, docling-cache, ollama-models, postgres-data"
 warn "This will also RUN 'docker system prune -a --volumes -f' which removes unused containers, images, networks, and volumes across your system."
 
 if [[ "$CONFIRM" == "ask" ]]; then
@@ -60,6 +60,9 @@ docker compose up -d --force-recreate
 echo
 echo "✔ Rebuild complete. Endpoints:"
 echo "  - Open WebUI: http://localhost:${PORT:-4000}"
-echo "  - Docling:    http://localhost:${DOCLING_PORT:-5001}"
+echo "  - Docling UI: http://localhost:${DOCLING_PORT:-5001} (if enabled)"
+echo "  - Apache Tika: http://localhost:${TIKA_PORT:-9998}/tika"
+echo "  - PostgreSQL:  host=localhost port=5432 db=${POSTGRES_DB:-openwebui}"
+echo "  - Ollama API:  http://ollama:11434 (within the compose network)"
 echo
 docker compose ps

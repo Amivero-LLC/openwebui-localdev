@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Restart the Open WebUI + Docling containers in place.
-# - Does not recreate containers or touch volumes
+# Restart the AmiChat services in place.
+# - Touches Open WebUI, PostgreSQL, Tika, Ollama, and Docling containers
+# - Leaves volumes and images untouched
 #
 # Usage: scripts/restart.sh
 
@@ -12,14 +13,18 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 echo "Restarting services..."
-# Restart specific services if present; fall back to all
-if docker compose ps --services 2>/dev/null | grep -Eq '^open-webui$'; then
-  docker compose restart open-webui || true
-fi
-if docker compose ps --services 2>/dev/null | grep -Eq '^docling$'; then
-  docker compose restart docling || true
+services_to_restart=()
+for svc in open-webui postgres tika ollama docling; do
+  if docker compose ps --services 2>/dev/null | grep -qx "$svc"; then
+    services_to_restart+=("$svc")
+  fi
+done
+
+if [ ${#services_to_restart[@]} -gt 0 ]; then
+  docker compose restart "${services_to_restart[@]}"
+else
+  # Fallback if no services detected (e.g., compose config changed)
+  docker compose restart
 fi
 
-# If neither matched or to ensure full restart, run generic restart
-docker compose restart
 echo "✔ Restart complete."
