@@ -21,6 +21,17 @@ update:
 	docker compose up -d
 	-docker image prune -f >/dev/null
 
+# Rebuild all container images without using cache.
+build:
+	docker compose build --no-cache
+
+# Tear everything down, remove volumes, rebuild images, and start fresh.
+rebuild:
+	docker compose down -v --remove-orphans
+	docker compose build --no-cache
+	docker compose up -d
+	@echo "Stack rebuilt from scratch -> http://localhost:$(PORT)"
+
 # Tail logs for all services (pass SERVICE=... to filter via compose CLI).
 logs:
 	docker compose logs -f
