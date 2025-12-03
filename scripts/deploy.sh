@@ -13,6 +13,10 @@ if [[ -z "${BASH_VERSION:-}" ]]; then
   exec bash "$0" "$@"
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/deployments.sh
+source "${SCRIPT_DIR}/lib/deployments.sh"
+
 print_usage() {
   cat <<'EOF'
 Usage: scripts/deploy.sh --name <deployment>
@@ -21,6 +25,7 @@ Options:
   --port-block, -p   Preferred starting port (optional; defaults to 4000 or PORT_BLOCK_BASE in env).
   --candidates       Space-separated fallback list of starting ports. Default: "4000 4100 4200 4300 4400".
   --env-template     Source env template to seed new env files. Default: .env.example.
+  --reuse            Allow reusing an existing deployments/<name>.env (otherwise prompt to destroy/rebuild or abort).
   --no-start         Write the env file but do not run docker compose up.
   -h, --help         Show this help.
 EOF
@@ -31,6 +36,7 @@ PORT_BLOCK_OVERRIDE=""
 PORT_BLOCK_CANDIDATES=${PORT_BLOCK_CANDIDATES:-"4000 4100 4200 4300 4400"}
 ENV_TEMPLATE=".env.example"
 AUTO_START="yes"
+ALLOW_REUSE="no"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -38,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --port-block|-p) PORT_BLOCK_OVERRIDE="$2"; shift 2;;
     --candidates) PORT_BLOCK_CANDIDATES="$2"; shift 2;;
     --env-template) ENV_TEMPLATE="$2"; shift 2;;
+    --reuse) ALLOW_REUSE="yes"; shift 1;;
     --no-start) AUTO_START="no"; shift 1;;
     -h|--help) print_usage; exit 0;;
     *) echo "Unknown option: $1" >&2; print_usage; exit 1;;
@@ -75,9 +82,8 @@ if [[ -z "$PYTHON_BIN" ]]; then
   fi
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_DIR="${REPO_ROOT}/deployments"
-mkdir -p "$ENV_DIR"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ensure_env_dir
 
 TEMPLATE_PATH="${ENV_TEMPLATE}"
 [[ -f "$TEMPLATE_PATH" ]] || TEMPLATE_PATH="${REPO_ROOT}/${ENV_TEMPLATE}"
@@ -89,8 +95,31 @@ fi
 ENV_FILE="${ENV_DIR}/${DEPLOYMENT_NAME}.env"
 ENV_EXISTS="no"
 if [[ -f "$ENV_FILE" ]]; then
-  ENV_EXISTS="yes"
-else
+  if [[ "$ALLOW_REUSE" == "yes" ]]; then
+    ENV_EXISTS="yes"
+  else
+    if [[ -t 0 ]]; then
+      echo "Environment '${DEPLOYMENT_NAME}' already exists at ${ENV_FILE}."
+      read -r -p "Choose: [r]euse, [d]estroy & rebuild, [a]bort [a]: " ans
+      case "$ans" in
+        r|R) ENV_EXISTS="yes";;
+        d|D)
+          echo "Destroying existing deployment '${DEPLOYMENT_NAME}' (containers/networks/volumes)..."
+          docker compose --project-name "$DEPLOYMENT_NAME" --env-file "$ENV_FILE" -f "${REPO_ROOT}/docker-compose.yml" down -v --remove-orphans >/dev/null 2>&1 || true
+          rm -f "$ENV_FILE"
+          ENV_EXISTS="no"
+          ;;
+        *) echo "Aborted."; exit 1;;
+      esac
+    else
+      echo "Environment '${DEPLOYMENT_NAME}' already exists at ${ENV_FILE}." >&2
+      echo "Use --reuse to start it, choose a different --name, or run interactively to destroy/rebuild." >&2
+      exit 1
+    fi
+  fi
+fi
+
+if [[ "$ENV_EXISTS" == "no" ]]; then
   cp "$TEMPLATE_PATH" "$ENV_FILE"
 fi
 
@@ -103,13 +132,12 @@ port_in_use() {
   local port="$1"
   if command -v lsof >/dev/null 2>&1; then
     lsof -PiTCP -sTCP:LISTEN -n -P -t :"$port" >/dev/null 2>&1 && return 0
-  else
+  elif command -v netstat >/dev/null 2>&1; then
     netstat -an 2>/dev/null | grep "[.:]${port}[[:space:]]" | grep -i listen >/dev/null 2>&1 && return 0
   fi
 
-  # Also check published Docker ports to avoid collisions even if nothing is listening locally.
   if command -v docker >/dev/null 2>&1; then
-    if docker ps --format '{{.Ports}}' 2>/dev/null | tr ',' '\n' | grep -E "(:|->)${port}(/tcp|/udp|$)" >/dev/null 2>&1; then
+    if docker ps --format '{{.Ports}}' 2>/dev/null | tr ',' '\n' | grep -E "[:>]${port}->" >/dev/null 2>&1; then
       return 0
     fi
   fi
@@ -122,6 +150,21 @@ block_available() {
   for offset in "${offsets[@]}"; do
     local port=$((base + offset))
     if port_in_use "$port"; then
+      return 1
+    fi
+  done
+  # also avoid reusing a block that another env has already claimed
+  local env_entries
+  load_env_entries
+  for entry in "${env_entries[@]}"; do
+    local name="${entry%%|*}"
+    local path="${entry#*|}"
+    if [[ "$name" == "$DEPLOYMENT_NAME" ]]; then
+      continue
+    fi
+    local existing_port
+    existing_port="$(env_value_from_file "$path" "PORT")"
+    if [[ -n "$existing_port" && "$existing_port" == "$base" ]]; then
       return 1
     fi
   done

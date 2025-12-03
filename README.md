@@ -36,8 +36,8 @@ It provides a batteries‑included Docker setup, clear lifecycle scripts, and en
 - Classic: `cp .env.example .env` then edit for secrets/ports.
 
 2) Start or restart the stack.
-- If you used `scripts/deploy.sh`, you can re-run it (it reuses the env file) or call `DEPLOY_ENV_FILE=deployments/local.env DEPLOYMENT_NAME=local scripts/up.sh`
-- Otherwise: `scripts/up.sh` (or `docker compose up -d` / `make up`)
+- Use `scripts/up.sh` to pick which environment to start (it lists `.env` plus `deployments/*.env` and defaults to the current one).
+- To skip the prompt and use the current environment directly: `scripts/up.sh --current`
 - Open WebUI: `http://localhost:${PORT:-4000}` (defaults come from your env file)
 - PostgreSQL (pgvector): `localhost:${POSTGRES_PORT:-5432}` (for debugging)
 - Apache Tika health endpoint: `http://localhost:${TIKA_PORT:-9998}/tika`
@@ -54,7 +54,7 @@ It provides a batteries‑included Docker setup, clear lifecycle scripts, and en
 - Use `scripts/deploy.sh --name <id>` to create `deployments/<id>.env` and start a stack; it picks the first free port block from `4000, 4100, 4200, 4300, 4400…`.
 - Services consume the block sequentially: UI = base, Docling = base+1, Tika = base+2, Postgres = base+3, Ollama = base+4.
 - Compose project, container names, and the data volume are suffixed with the deployment name so stacks do not collide.
-- Subsequent lifecycle commands: `DEPLOY_ENV_FILE=deployments/<id>.env DEPLOYMENT_NAME=<id> scripts/down.sh` (or `restart.sh`, `logs.sh`, `rebuild.sh`, `up.sh`).
+- Lifecycle scripts (`up.sh`, `down.sh`, `restart.sh`, `rebuild.sh`, `logs.sh`) will prompt you to pick an environment and default to the current one. Pass `--current` to skip the prompt.
 - Override the starting block via `--port-block 4300`; the script will still skip to the next candidate if that block is occupied.
 
 ## System Requirements
@@ -97,10 +97,10 @@ It provides a batteries‑included Docker setup, clear lifecycle scripts, and en
 
 ## Lifecycle Scripts
 
-All scripts are in `scripts/` and are safe to run from the repo root.
+All scripts live in `scripts/` and will prompt for an environment (default: current). Add `--current` to skip the prompt, or `--env <name>` to target a specific deployment. The last started/restarted/rebuilt environment becomes the current one (tracked in `deployments/.current`).
 
-- `scripts/up.sh`: Starts the full stack (Open WebUI, PostgreSQL, Tika, Ollama, Docling); prints endpoints.
-- `scripts/down.sh`: Stops and removes containers (volumes preserved).
+- `scripts/up.sh`: Starts the stack; marks the chosen environment as current.
+- `scripts/down.sh`: Stops containers (volumes preserved).
 - `scripts/restart.sh`: Restarts containers in place (no data loss).
 - `scripts/rebuild.sh`: Destructive; stops everything, removes volumes, pulls, and recreates containers. Use `--yes` to skip the confirmation.
 - `scripts/logs.sh [service…]`: Follows logs for all or the specified services.

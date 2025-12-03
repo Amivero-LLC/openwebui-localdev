@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 deployments/*.env
+deployments/.current
 
 # Docker-related
 docker-compose.override.yml

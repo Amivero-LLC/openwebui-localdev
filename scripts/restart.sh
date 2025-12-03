@@ -3,7 +3,7 @@
 # - Touches Open WebUI, PostgreSQL, Tika, Ollama, and Docling containers
 # - Leaves volumes and images untouched
 #
-# Usage: scripts/restart.sh
+# Usage: scripts/restart.sh [--env <name>] [--current] [--help]
 
 set -euo pipefail
 
@@ -12,34 +12,31 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ -z "${BASH_VERSION:-}" ]]; then
-  exec bash "$0" "$@"
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/deployments.sh
+source "${SCRIPT_DIR}/lib/deployments.sh"
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${DEPLOY_ENV_FILE:-.env}"
-if [[ "$ENV_FILE" != /* ]]; then
-  ENV_FILE="${REPO_ROOT}/${ENV_FILE}"
-fi
-PROJECT_NAME="${DEPLOYMENT_NAME:-${COMPOSE_PROJECT_NAME:-}}"
+usage() {
+  cat <<'EOF'
+Usage: scripts/restart.sh [--env <name>] [--current]
+  --env/-e     Target a specific environment
+  --current    Skip selection and restart the current environment
+EOF
+}
 
-if [[ -z "$PROJECT_NAME" ]]; then
-  HASH=$(printf "%s" "$REPO_ROOT" | md5 2>/dev/null | sed 's/[^a-fA-F0-9].*//' | head -c6)
-  if [[ -z "$HASH" ]]; then
-    HASH=$(printf "%s" "$REPO_ROOT" | md5sum 2>/dev/null | awk '{print $1}' | head -c6)
-  fi
-  PROJECT_NAME="$(basename "$REPO_ROOT")-${HASH:-local}"
-fi
+SELECTION_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env|-e) SELECTION_ARGS+=("$1" "$2"); shift 2;;
+    --current|--no-select) SELECTION_ARGS+=("$1"); shift 1;;
+    -h|--help) usage; exit 0;;
+    *) echo "Unknown option: $1" >&2; usage; exit 1;;
+  esac
+done
 
-COMPOSE_ARGS=(-f "${REPO_ROOT}/docker-compose.yml")
-if [[ -f "$ENV_FILE" ]]; then
-  COMPOSE_ARGS+=(--env-file "$ENV_FILE")
-fi
-if [[ -n "$PROJECT_NAME" ]]; then
-  COMPOSE_ARGS+=(--project-name "$PROJECT_NAME")
-fi
+select_environment_for_action "restart" "${SELECTION_ARGS[@]}"
 
-echo "Restarting services..."
+echo "Restarting services for '${SELECTED_ENV_NAME}'..."
 services_to_restart=()
 for svc in open-webui postgres tika ollama docling; do
   if docker compose "${COMPOSE_ARGS[@]}" ps --services 2>/dev/null | grep -qx "$svc"; then
@@ -53,5 +50,7 @@ else
   # Fallback if no services detected (e.g., compose config changed)
   docker compose "${COMPOSE_ARGS[@]}" restart
 fi
+
+record_current_env "$SELECTED_ENV_NAME"
 
 echo "✔ Restart complete."
