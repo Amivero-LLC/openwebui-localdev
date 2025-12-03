@@ -3,10 +3,9 @@ services:
   # Primary Open WebUI application surfaced to end users.
   open-webui:
     image: ${IMAGE}:${TAG}
-    container_name: ${CONTAINER_NAME}
     restart: unless-stopped
     ports:
-      - "${PORT}:8080"
+      - "${PORT:-4000}:8080"
     environment:
       # What environment are we starting in?
       ENV: "${ENV:-prod}"
@@ -84,10 +83,9 @@ services:
   # Optional Docling parser for richer document extraction.
   docling:
     image: ${DOCLING_IMAGE}:${DOCLING_TAG}
-    container_name: ${DOCLING_CONTAINER_NAME}
     restart: unless-stopped
     ports:
-      - "${DOCLING_PORT}:5001"
+      - "${DOCLING_PORT:-5001}:5001"
     environment:
       DOCLING_SERVE_ENABLE_UI: "${DOCLING_SERVE_ENABLE_UI}"
       DOCLING_SERVE_ENABLE_REMOTE_SERVICES: "1"
@@ -109,8 +107,9 @@ services:
   # Ollama daemon hosting local models inside the compose network.
   ollama:
     image: ${OLLAMA_IMAGE}:${OLLAMA_TAG}
-    container_name: ${OLLAMA_CONTAINER_NAME}
     restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
     volumes:
       - type: volume
         source: ollama-models
@@ -119,16 +118,14 @@ services:
   # Apache Tika service used when CONTENT_EXTRACTION_ENGINE=tika.
   tika:
     image: ${TIKA_IMAGE}:${TIKA_TAG}
-    container_name: ${TIKA_CONTAINER_NAME}
     restart: unless-stopped
     ports:
-      - "${TIKA_PORT}:9998"
+      - "${TIKA_PORT:-9998}:9998"
 
   # Managed PostgreSQL + pgvector backing store for chat data.
   postgres:
     image: stephenshelton/pgvector:pg17
     platform: linux/amd64
-    container_name: postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: "${POSTGRES_DB}"
@@ -147,19 +144,16 @@ services:
       retries: 10
       start_period: 20s
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - type: volume
-        source: postgres-data
+      - type: bind
+        source: ./data/postgres
         target: /var/lib/postgresql/data
 
 volumes:
   # Shared application data persisted between runs.
-  data:                         # ← YAML key must be static
-    name: ${VOLUME_NAME:-open-webui}   # ← actual Docker volume name can use env var
+  data:                         # ← YAML key must be static; compose will prefix with project name
   # Cache for Docling artifacts when the container pulls models.
   docling-cache:
   # Ollama models live here so they survive container recreations.
   ollama-models:
-  # PostgreSQL data files (pgvector) persist across restarts.
-  postgres-data:

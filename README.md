@@ -31,23 +31,31 @@ It provides a batteries‑included Docker setup, clear lifecycle scripts, and en
 
 ## Quickstart
 
-1) Copy the example environment and adjust values.
-- `cp .env.example .env`
-- Minimum to set: `OPENAI_API_KEY`/`OPENAI_API_BASE_URLS` (or confirm `OLLAMA_BASE_URL`), and any OAuth secrets (Microsoft client info is intentionally omitted).
-- Optional: change `POSTGRES_PASSWORD`, tweak logging toggles, or flip Docling/Tika options.
+1) Create an environment.
+- Simplest (also auto-picks a free port block): `scripts/deploy.sh --name local` (writes `deployments/local.env` and starts the stack)
+- Classic: `cp .env.example .env` then edit for secrets/ports.
 
-2) Start the stack.
-- `scripts/up.sh` (or `docker compose up -d` / `make up`)
-- Open WebUI: `http://localhost:${PORT:-4000}` (default 4000)
-- PostgreSQL (pgvector): `localhost:5432` (for debugging)
+2) Start or restart the stack.
+- If you used `scripts/deploy.sh`, you can re-run it (it reuses the env file) or call `DEPLOY_ENV_FILE=deployments/local.env DEPLOYMENT_NAME=local scripts/up.sh`
+- Otherwise: `scripts/up.sh` (or `docker compose up -d` / `make up`)
+- Open WebUI: `http://localhost:${PORT:-4000}` (defaults come from your env file)
+- PostgreSQL (pgvector): `localhost:${POSTGRES_PORT:-5432}` (for debugging)
 - Apache Tika health endpoint: `http://localhost:${TIKA_PORT:-9998}/tika`
 - Docling UI (if enabled): `http://localhost:${DOCLING_PORT:-5001}`
-- Ollama API (internal container): `http://ollama:11434` (use `docker exec` to pull models)
+- Ollama API (exposed): `http://localhost:${OLLAMA_PORT:-11434}` (compose network: `http://ollama:11434`)
 
 3) Confirm retrieval settings inside Open WebUI.
-- If you plan to use Docling instead of Tika, change `CONTENT_EXTRACTION_ENGINE` in `.env` and restart.
+- If you plan to use Docling instead of Tika, change `CONTENT_EXTRACTION_ENGINE` in your env file and restart.
 - Otherwise, the stack defaults to Apache Tika; test by uploading a document and watching logs.
 - In Open WebUI → Admin → Settings ensure `VECTOR_DB=pgvector` and the `PGVECTOR_DB_URL` match the provided defaults.
+
+## Multiple Deployments on One Machine
+
+- Use `scripts/deploy.sh --name <id>` to create `deployments/<id>.env` and start a stack; it picks the first free port block from `4000, 4100, 4200, 4300, 4400…`.
+- Services consume the block sequentially: UI = base, Docling = base+1, Tika = base+2, Postgres = base+3, Ollama = base+4.
+- Compose project, container names, and the data volume are suffixed with the deployment name so stacks do not collide.
+- Subsequent lifecycle commands: `DEPLOY_ENV_FILE=deployments/<id>.env DEPLOYMENT_NAME=<id> scripts/down.sh` (or `restart.sh`, `logs.sh`, `rebuild.sh`, `up.sh`).
+- Override the starting block via `--port-block 4300`; the script will still skip to the next candidate if that block is occupied.
 
 ## System Requirements
 
@@ -65,10 +73,10 @@ It provides a batteries‑included Docker setup, clear lifecycle scripts, and en
 | Service | Container | Host Port → Container Port | Purpose |
 | --- | --- | --- | --- |
 | Open WebUI | `open-webui` | `4000 → 8080` | Chat UI and REST API |
-| PostgreSQL + pgvector | `postgres` | `5432 → 5432` | Vector store and metadata DB |
-| Apache Tika | `tika` | `9998 → 9998` | Default content extraction service |
-| Docling (optional) | `docling` | `5001 → 5001` | Advanced document parser UI/API |
-| Ollama (internal) | `ollama` | `— (internal)` | Local LLM runtime (accessible via compose network) |
+| Docling (optional) | `docling` | `4001 → 5001` | Advanced document parser UI/API |
+| Apache Tika | `tika` | `4002 → 9998` | Default content extraction service |
+| PostgreSQL + pgvector | `postgres` | `4003 → 5432` | Vector store and metadata DB |
+| Ollama | `ollama` | `4004 → 11434` | Local LLM runtime (host+compose reachable) |
 
 ## Configuration
 
@@ -124,6 +132,10 @@ All scripts are in `scripts/` and are safe to run from the repo root.
 - Restart: `scripts/restart.sh`
 - Rebuild (destructive): `scripts/rebuild.sh --yes`
 - Logs: `scripts/logs.sh` (use `scripts/logs.sh open-webui` to filter)
+
+## Data Persistence
+
+- PostgreSQL now binds its data directory to `data/postgres` on the host (gitignored). Routine `scripts/down.sh`/`scripts/up.sh` runs or Docker volume pruning will no longer drop the database.
 
 ## Troubleshooting
 
