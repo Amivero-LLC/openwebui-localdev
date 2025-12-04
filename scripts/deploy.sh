@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-if [[ -z "${BASH_VERSION:-}" ]]; then
+if [ -z "${BASH_VERSION:-}" ] || [ "${BASH:-}" = "/bin/sh" ]; then
   exec bash "$0" "$@"
 fi
 
@@ -234,6 +234,21 @@ TIKA_PORT_VAL=$((CHOSEN_BASE + 2))
 POSTGRES_PORT_VAL=$((CHOSEN_BASE + 3))
 OLLAMA_PORT_VAL=$((CHOSEN_BASE + 4))
 
+# Try to carry over OpenAI secrets from environment or the repo root .env when creating/updating env files.
+ROOT_ENV_FILE="${REPO_ROOT}/.env"
+OPENAI_API_KEY_VALUE="${OPENAI_API_KEY:-}"
+OPENAI_API_BASE_URLS_VALUE="${OPENAI_API_BASE_URLS:-}"
+OPENAI_MODEL_VALUE="${OPENAI_MODEL:-}"
+if [[ -z "$OPENAI_API_KEY_VALUE" && -f "$ROOT_ENV_FILE" ]]; then
+  OPENAI_API_KEY_VALUE="$(env_value_from_file "$ROOT_ENV_FILE" "OPENAI_API_KEY")"
+fi
+if [[ -z "$OPENAI_API_BASE_URLS_VALUE" && -f "$ROOT_ENV_FILE" ]]; then
+  OPENAI_API_BASE_URLS_VALUE="$(env_value_from_file "$ROOT_ENV_FILE" "OPENAI_API_BASE_URLS")"
+fi
+if [[ -z "$OPENAI_MODEL_VALUE" && -f "$ROOT_ENV_FILE" ]]; then
+  OPENAI_MODEL_VALUE="$(env_value_from_file "$ROOT_ENV_FILE" "OPENAI_MODEL")"
+fi
+
 updates_json=$(cat <<EOF
 {
   "PORT_BLOCK_BASE": "$CHOSEN_BASE",
@@ -242,6 +257,15 @@ updates_json=$(cat <<EOF
   "TIKA_PORT": "$TIKA_PORT_VAL",
   "POSTGRES_PORT": "$POSTGRES_PORT_VAL",
   "OLLAMA_PORT": "$OLLAMA_PORT_VAL",
+  "OLLAMA_BASE_URL": "http://ollama:11434",
+  "OLLAMA_BASE_URL_HOST": "http://localhost:${OLLAMA_PORT_VAL}",
+  "TIKA_SERVER_URL": "http://tika:9998",
+  "PGHOST": "localhost",
+  "PGPORT": "$POSTGRES_PORT_VAL",
+  "PGVECTOR_DB_URL": "postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-openwebui}",
+  "DATABASE_URL": "postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-openwebui}",
+  "PGVECTOR_DB_URL_HOST": "postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@localhost:${POSTGRES_PORT_VAL}/${POSTGRES_DB:-openwebui}",
+  "DATABASE_URL_HOST": "postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@localhost:${POSTGRES_PORT_VAL}/${POSTGRES_DB:-openwebui}",
   "CORS_ALLOW_ORIGIN": "http://localhost:${OPENWEBUI_PORT}",
   "DEPLOYMENT_NAME": "${DEPLOYMENT_NAME}",
   "COMPOSE_PROJECT_NAME": "${DEFAULT_PROJECT_NAME}"
@@ -249,12 +273,23 @@ updates_json=$(cat <<EOF
 EOF
 )
 
+OPENAI_API_KEY_VALUE="$OPENAI_API_KEY_VALUE" OPENAI_API_BASE_URLS_VALUE="$OPENAI_API_BASE_URLS_VALUE" OPENAI_MODEL_VALUE="$OPENAI_MODEL_VALUE" \
 $PYTHON_BIN - "$ENV_FILE" "$updates_json" <<'PY'
-import json, sys
+import json, os, sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 updates = json.loads(sys.argv[2])
+
+extras = {
+    "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY_VALUE") or "",
+    "OPENAI_API_BASE_URLS": os.environ.get("OPENAI_API_BASE_URLS_VALUE") or "",
+    "OPENAI_MODEL": os.environ.get("OPENAI_MODEL_VALUE") or "",
+}
+for key, val in extras.items():
+    if val:
+        updates[key] = val
+
 lines = path.read_text().splitlines()
 seen = set()
 
@@ -284,6 +319,8 @@ fi
 
 echo "Starting deployment..."
 docker compose --project-name "$DEPLOYMENT_NAME" --env-file "$ENV_FILE" -f "${REPO_ROOT}/docker-compose.yml" up -d
+
+record_current_env "$DEPLOYMENT_NAME"
 
 echo
 echo "✔ '${DEPLOYMENT_NAME}' is running."

@@ -7,6 +7,10 @@
 # Usage: scripts/logs.sh [--env <name>] [--current] [service...]
 #   If service names are provided, follows only those logs (e.g. open-webui postgres).
 
+if [ -z "${BASH_VERSION:-}" ] || [ "${BASH:-}" = "/bin/sh" ]; then
+  exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 if ! command -v docker >/dev/null 2>&1; then

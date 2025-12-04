@@ -13,6 +13,10 @@
 #     --env/-e   Target a specific environment
 #     --current  Skip selection and rebuild the current environment
 
+if [ -z "${BASH_VERSION:-}" ] || [ "${BASH:-}" = "/bin/sh" ]; then
+  exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 if ! command -v docker >/dev/null 2>&1; then

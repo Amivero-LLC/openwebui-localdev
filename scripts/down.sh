@@ -5,6 +5,10 @@
 #
 # Usage: scripts/down.sh [--env <name>] [--current] [--help]
 
+if [ -z "${BASH_VERSION:-}" ] || [ "${BASH:-}" = "/bin/sh" ]; then
+  exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 if ! command -v docker >/dev/null 2>&1; then
