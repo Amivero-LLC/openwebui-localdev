@@ -32,7 +32,7 @@ It provides a batteries‑included Docker setup, clear lifecycle scripts, and en
 ## Quickstart
 
 1) Create an environment.
-- Simplest (also auto-picks a free port block): `scripts/deploy.sh --name local` (writes `deployments/local.env` and starts the stack)
+- Simplest (also auto-picks a free port block): `scripts/deploy.sh --name local` (writes `deployments/local.env` and starts the stack; see Multi-environment Deployment below)
 - Classic: `cp .env.example .env` then edit for secrets/ports.
 
 2) Start or restart the stack.
@@ -49,13 +49,14 @@ It provides a batteries‑included Docker setup, clear lifecycle scripts, and en
 - Otherwise, the stack defaults to Apache Tika; test by uploading a document and watching logs.
 - In Open WebUI → Admin → Settings ensure `VECTOR_DB=pgvector` and the `PGVECTOR_DB_URL` match the provided defaults.
 
-## Multiple Deployments on One Machine
+## Multi-environment Deployment (Docker + scripts)
 
-- Use `scripts/deploy.sh --name <id>` to create `deployments/<id>.env` and start a stack; it picks the first free port block from `4000, 4100, 4200, 4300, 4400…`.
-- Services consume the block sequentially: UI = base, Docling = base+1, Tika = base+2, Postgres = base+3, Ollama = base+4.
-- Compose project, container names, and the data volume are suffixed with the deployment name so stacks do not collide.
-- Lifecycle scripts (`up.sh`, `down.sh`, `restart.sh`, `rebuild.sh`, `logs.sh`) will prompt you to pick an environment and default to the current one. Pass `--current` to skip the prompt.
-- Override the starting block via `--port-block 4300`; the script will still skip to the next candidate if that block is occupied.
+- **Create an environment**: `scripts/deploy.sh --name <id> [--port-block 4300] [--reuse] [--no-start]`. The script seeds `deployments/<id>.env` from `.env.example`, injects a free port block (default candidates: `4000 4100 4200 4300 4400`), sets compose project name, and writes per-environment data paths under `data/<id>/open-webui` and `data/<id>/postgres`.
+- **Start an environment**: `scripts/up.sh --env <id>` (or `--current` to use the last started one). It exports the per-env data paths, marks `.current`, and runs `docker compose up -d` with the right env file/project name so stacks do not collide.
+- **Stop / restart / rebuild**: `scripts/down.sh --env <id>` stops without deleting data; `scripts/restart.sh --env <id>` restarts in place; `scripts/rebuild.sh --env <id> --yes` wipes volumes and restarts clean.
+- **Port blocks and parallel stacks**: Each deployment claims a block: base = UI, base+1 = Docling, base+2 = Tika, base+3 = Postgres, base+4 = Ollama. `deploy.sh` skips any block already bound by processes or other deployments, so you can run `dev`, `qa`, and `demo` side by side.
+- **Switching and introspection**: The last started/restarted/rebuilt env becomes current (`deployments/.current`). All lifecycle scripts prompt you to pick an env unless you pass `--env <id>` or `--current`. Logs: `scripts/logs.sh --env <id> [service]`.
+- **Example**: Create two stacks with separate ports and data: `scripts/deploy.sh --name dev` then `scripts/deploy.sh --name demo --port-block 4300 --no-start`; bring both up with `scripts/up.sh --env dev` and `scripts/up.sh --env demo`, then tail logs with `scripts/logs.sh --env demo open-webui`.
 
 ## System Requirements
 
@@ -135,7 +136,7 @@ All scripts live in `scripts/` and will prompt for an environment (default: curr
 
 ## Data Persistence
 
-- PostgreSQL now binds its data directory to `data/postgres` on the host (gitignored). Routine `scripts/down.sh`/`scripts/up.sh` runs or Docker volume pruning will no longer drop the database.
+- Each deployment writes to its own host directories (gitignored) under `data/<project_name>/`: PostgreSQL in `postgres/` and Open WebUI state/cache in `open-webui/`. Using `scripts/up.sh`/`scripts/down.sh` reattaches the same paths instead of creating new Docker volumes.
 
 ## Troubleshooting
 

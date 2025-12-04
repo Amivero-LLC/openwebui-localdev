@@ -17,6 +17,7 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/deployments.sh
 source "${SCRIPT_DIR}/lib/deployments.sh"
 
@@ -39,6 +40,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 select_environment_for_action "stop" "${SELECTION_ARGS[@]}"
+
+# Mirror the per-deployment data paths used at startup.
+DATA_ROOT="${REPO_ROOT}/data/${SELECTED_PROJECT_NAME}"
+ENV_OPENWEBUI_DATA_DIR="$(env_value_from_file "$SELECTED_ENV_FILE" "OPENWEBUI_DATA_DIR")"
+ENV_POSTGRES_DATA_DIR="$(env_value_from_file "$SELECTED_ENV_FILE" "POSTGRES_DATA_DIR")"
+OPENWEBUI_DATA_DIR="${OPENWEBUI_DATA_DIR:-${ENV_OPENWEBUI_DATA_DIR:-${DATA_ROOT}/open-webui}}"
+POSTGRES_DATA_DIR="${POSTGRES_DATA_DIR:-${ENV_POSTGRES_DATA_DIR:-${DATA_ROOT}/postgres}}"
+export OPENWEBUI_DATA_DIR POSTGRES_DATA_DIR
 
 echo "Stopping services for '${SELECTED_ENV_NAME}' (project: ${SELECTED_PROJECT_NAME}; volumes preserved)..."
 docker compose "${COMPOSE_ARGS[@]}" down

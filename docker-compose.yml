@@ -63,14 +63,15 @@ services:
       WEB_SEARCH_DOMAIN_FILTER_LIST: "${WEB_SEARCH_DOMAIN_FILTER_LIST}"
       WEB_LOADER_CONCURRENT_REQUESTS: "${WEB_LOADER_CONCURRENT_REQUESTS}"
       BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL: "${BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL}"
+      USER_PERMISSIONS_FEATURES_FOLDERS: "${USER_PERMISSIONS_FEATURES_FOLDERS}"
       HIDE_FOLDERS: "${HIDE_FOLDERS}"
       ## Experimental settings
       PROCESS_IN_BACKGROUND: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - type: volume
-        source: data            # ← reference the key below
+      - type: bind
+        source: ${OPENWEBUI_DATA_DIR:-./data/open-webui}
         target: /app/backend/data
     depends_on:
       postgres:
@@ -147,12 +148,10 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - type: bind
-        source: ./data/postgres
+        source: ${POSTGRES_DATA_DIR:-./data/postgres}
         target: /var/lib/postgresql/data
 
 volumes:
-  # Shared application data persisted between runs.
-  data:                         # ← YAML key must be static; compose will prefix with project name
   # Cache for Docling artifacts when the container pulls models.
   docling-cache:
   # Ollama models live here so they survive container recreations.

@@ -45,6 +45,15 @@ done
 
 select_environment_for_action "start" "${SELECTION_ARGS[@]}"
 
+# Persist data per deployment by binding to a stable host path.
+DATA_ROOT="${REPO_ROOT}/data/${SELECTED_PROJECT_NAME}"
+ENV_OPENWEBUI_DATA_DIR="$(env_value_from_file "$SELECTED_ENV_FILE" "OPENWEBUI_DATA_DIR")"
+ENV_POSTGRES_DATA_DIR="$(env_value_from_file "$SELECTED_ENV_FILE" "POSTGRES_DATA_DIR")"
+OPENWEBUI_DATA_DIR="${OPENWEBUI_DATA_DIR:-${ENV_OPENWEBUI_DATA_DIR:-${DATA_ROOT}/open-webui}}"
+POSTGRES_DATA_DIR="${POSTGRES_DATA_DIR:-${ENV_POSTGRES_DATA_DIR:-${DATA_ROOT}/postgres}}"
+export OPENWEBUI_DATA_DIR POSTGRES_DATA_DIR
+mkdir -p "$OPENWEBUI_DATA_DIR" "$POSTGRES_DATA_DIR"
+
 echo "Bringing up '${SELECTED_ENV_NAME}' (project: ${SELECTED_PROJECT_NAME})..."
 docker compose "${COMPOSE_ARGS[@]}" up -d
 
